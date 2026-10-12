@@ -39,3 +39,18 @@ def test_legacy_import_backups_idempotence_ownership_and_auth(app,tmp_path):
     row=c.get('/api/cases').json[0];detail=c.get('/api/cases/'+str(row['id'])).json;assert detail['assessment']=='Original assessment';assert detail['recommendations']=='Original advice'
     other=app.test_client();signup(other,'outsider@example.test');login(other,'outsider@example.test');assert other.get('/api/cases/'+str(row['id'])).status_code==403
     doctor=app.test_client();assert request(doctor,'/api/doctor/login',data={'staff_id':'DOC-1','password':'SyntheticPass!23'}).status_code==200;assert len(doctor.get('/api/cases').json)==1
+
+def test_role_email_schema_migration_preserves_references(tmp_path):
+    db=tmp_path/'version1.db'
+    with sqlite3.connect(db) as c:
+        c.executescript('CREATE TABLE users(id INTEGER PRIMARY KEY,email TEXT UNIQUE NOT NULL,password TEXT NOT NULL,role TEXT NOT NULL,name TEXT NOT NULL);CREATE TABLE schema_version(version INTEGER);INSERT INTO schema_version VALUES(1);CREATE TABLE account_aliases(alias TEXT,role TEXT,user_id INTEGER REFERENCES users(id),UNIQUE(alias,role));')
+        c.execute("INSERT INTO users VALUES(42,'fictional@example.test','test-hash','patient','Fictional Account')")
+        c.execute("INSERT INTO account_aliases VALUES('health-42','patient',42)")
+    create_app({'TESTING':True,'DATABASE':str(db),'UPLOAD_FOLDER':str(tmp_path/'reports'),'SECRET_KEY':'test'})
+    assert list(tmp_path.glob('version1.db.backup-role-emails-*'))
+    with sqlite3.connect(db) as c:
+        assert c.execute('SELECT id,name FROM users').fetchone()==(42,'Fictional Account')
+        assert c.execute('SELECT user_id FROM account_aliases').fetchone()[0]==42
+        assert c.execute('PRAGMA foreign_key_check').fetchall()==[]
+        assert c.execute('SELECT version FROM schema_version').fetchone()[0]==2
+        c.execute("INSERT INTO users(email,password,role,name) VALUES('fictional@example.test','test-hash','doctor','Fictional Doctor')")
