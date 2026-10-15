@@ -1,10 +1,16 @@
+# Updated demo entry point
+
+Double-click start-demo.cmd after installing requirements, then use http://127.0.0.1:5015/. Demo accounts live in a separate database. Both roles use password DemoPassword!2026 and emails patient@example.test / doctor@example.test. Use General / unsure initially, or change the doctor's branch in My profile first. The patient and doctor logins have a Fill demo sign-in control.
+
+Additional checks: choose English/Hindi/Punjabi; verify typed fields remain when switching; use Dictate/Read aloud beneath text boxes in a supported browser. Open Care assistant / Clinical assistant, add your OpenAI key to local .env and restart. Agree to sending the conversation. A doctor may separately choose to include the selected case's details. Responses do not update notes or finalize records. No live API key is included in the repository.
+
 # Judge demonstration
 
 All data in this walkthrough is fictional. Start with `python backend.py --demo`, then `python backend.py`.
 
 1. Open `http://127.0.0.1:5000`, choose **I’m a patient**, and sign in on the separate patient login page as `patient@example.test` / `DemoPassword!2026`. The patient portal opens with app-style bottom navigation.
 2. Select **Start a consultation** or **New visit**. Enter name `Aarav Demo`, age `30`, complaint `Digestive discomfort`, duration `1–3 days`, severity `4`. Continue through the three steps and enter optional self-reported digestion, sleep, Agni and Koshtha observations. Leave Prakriti empty unless qualified assessment exists. Hindi labels can be toggled without clearing entries.
-3. Submit the case. It is stored immediately and assigned to the first doctor. Select `demo/synthetic-report.pdf`, then **Upload report**. Wait for the extraction result. Original source lines remain visible; each finding requires manual verification.
+3. Submit the case. It is stored immediately and assigned to the first doctor in the selected branch. Select `demo/synthetic-report.pdf`, then **Upload report**. Wait for the extraction result. Original source lines remain visible; each finding requires manual verification.
 4. Refresh. The case and upload persist. Draft clinician notes are hidden from the patient.
 5. Sign out, choose **I’m a clinician**, and sign in on the doctor login page as `doctor@example.test` / `DemoPassword!2026`. The desktop clinical workspace has a sidebar queue and separate review panel. Queue counters derive from assigned database cases. Search by name or complaint, or filter by status.
 6. Open the case. Compare the original PDF/text and source-linked extracted findings. The synthetic report includes Hemoglobin and Glucose values with printed reference ranges. These are test fixtures, not advice.

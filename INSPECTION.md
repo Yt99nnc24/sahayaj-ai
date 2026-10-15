@@ -32,4 +32,4 @@ The original database has one patient, one doctor and five intake records. Names
 
 ## Remaining boundaries
 
-Browser-based speech recognition from the original prototype is deferred: providers can process speech remotely and the local core must not transmit medical narration by default. The patient intake has Hindi labels and English canonical option values; the report and doctor evidence workspace remain English. OCR engine installation remains optional. GitHub publication requires a callable authenticated GitHub integration or authenticated Git CLI.
+As of 2026-10-15, explicit browser dictation and read-aloud controls are available in both portals with permission/fallback messages. English/Hindi/Punjabi core controls preserve original record text. Optional OpenAI conversation requires explicit consent; doctor context has a separate opt-in and ownership check. OCR engine installation remains optional. Source changes are published using the authenticated GitHub connector.

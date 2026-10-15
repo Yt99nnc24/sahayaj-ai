@@ -1,13 +1,14 @@
-import os, re, json, sqlite3, secrets, shutil, functools, time
+import os, re, json, sqlite3, secrets, shutil, functools, time, hashlib
 from pathlib import Path
 from datetime import datetime, timezone
 import fitz
 from PIL import Image
 from flask import Flask, request, session, jsonify, render_template, send_file, abort, redirect
 from werkzeug.security import generate_password_hash, check_password_hash
+from assistant_service import load_env, ask_openai, BRANCHES, LANGUAGES
 
 ROOT = Path(__file__).parent
-FIELDS = ['name','age','sex','complaint','duration','severity','history','medications','allergies','observations','agni','koshtha','prakriti','digestion','sleep','diet','lifestyle']
+FIELDS = ['name','age','sex','complaint','duration','severity','history','medications','allergies','observations','agni','koshtha','prakriti','digestion','sleep','diet','lifestyle','medical_branch','specialty']
 def now(): return datetime.now(timezone.utc).isoformat()
 def extract(path):
     pages=[]; method='selectable PDF text'; status='completed'
@@ -49,6 +50,7 @@ def flags(data):
     return result
 
 def create_app(config=None):
+    load_env(ROOT/'.env')
     app=Flask(__name__); private=ROOT/'instance'; private.mkdir(exist_ok=True)
     secret=os.environ.get('SAHAYAJ_SECRET')
     if not secret:
@@ -57,7 +59,11 @@ def create_app(config=None):
         secret=secret_path.read_text()
     app.config.update(SECRET_KEY=secret,DATABASE=os.environ.get('SAHAYAJ_DATABASE',str(private/'database.db')),UPLOAD_FOLDER=str(private/'reports'),MAX_CONTENT_LENGTH=12*1024*1024,SESSION_COOKIE_HTTPONLY=True,SESSION_COOKIE_SAMESITE='Lax',SESSION_COOKIE_SECURE=os.environ.get('SAHAYAJ_SECURE_COOKIE')=='1',DOCTOR_CODE=os.environ.get('SAHAYAJ_DOCTOR_CODE',''))
     if config: app.config.update(config)
+    app.config['SESSION_COOKIE_NAME']='sahayaj_'+hashlib.sha256(str(Path(app.config['DATABASE']).resolve()).encode()).hexdigest()[:12]
+    app.config.setdefault('OPENAI_API_KEY',os.environ.get('OPENAI_API_KEY',''))
+    app.config.setdefault('OPENAI_MODEL',os.environ.get('OPENAI_MODEL','gpt-4.1-mini'))
     login_attempts={}
+    chat_attempts={}
     Path(app.config['UPLOAD_FOLDER']).mkdir(parents=True,exist_ok=True)
     def db():
         c=sqlite3.connect(app.config['DATABASE']); c.row_factory=sqlite3.Row; c.execute('PRAGMA foreign_keys=ON'); return c
@@ -81,6 +87,7 @@ def create_app(config=None):
         CREATE TABLE IF NOT EXISTS account_aliases(alias TEXT,role TEXT,user_id INTEGER REFERENCES users(id),UNIQUE(alias,role));
         CREATE TABLE IF NOT EXISTS legacy_imports(source TEXT,entity TEXT,legacy_id INTEGER,new_id INTEGER,UNIQUE(source,entity,legacy_id));
         UPDATE schema_version SET version=2;''')
+        c.execute('CREATE TABLE IF NOT EXISTS clinician_profiles(user_id INTEGER PRIMARY KEY REFERENCES users(id),medical_branch TEXT NOT NULL)')
     def audit(c,cid,action,details=''): c.execute('INSERT INTO audit(user_id,case_id,action,details,created) VALUES(?,?,?,?,?)',(session.get('uid'),cid,action,details,now()))
     def auth(role=None):
         def wrap(fn):
@@ -98,7 +105,7 @@ def create_app(config=None):
         return dict(row)
     @app.before_request
     def csrf():
-        if request.method in ['POST','PUT','DELETE'] and not secrets.compare_digest(request.headers.get('X-CSRF-Token',''),session.get('csrf','missing')): abort(403)
+        if request.method in ['POST','PUT','DELETE'] and not secrets.compare_digest(request.headers.get('X-CSRF-Token',''),session.get('csrf','missing')): abort(403,description='Session expired. Refresh the page and try again.')
     @app.after_request
     def headers(r):
         r.headers['X-Content-Type-Options']='nosniff'; r.headers['Cache-Control']='no-store'; r.headers['Content-Security-Policy']="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; frame-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"; return r
@@ -110,6 +117,8 @@ def create_app(config=None):
     @app.errorhandler(413)
     @app.errorhandler(415)
     @app.errorhandler(429)
+    @app.errorhandler(502)
+    @app.errorhandler(503)
     def error(e): return jsonify(error=e.description),e.code
     @app.get('/')
     def index(): return render_template('landing.html')
@@ -133,15 +142,22 @@ def create_app(config=None):
     @app.get('/api/session')
     def state():
         session.setdefault('csrf',secrets.token_hex(24))
-        return jsonify(csrf=session['csrf'],user=dict(id=session['uid'],role=session['role'],name=session['name']) if session.get('uid') else None)
+        with db() as c:
+            branch=c.execute('SELECT medical_branch FROM clinician_profiles WHERE user_id=?',(session.get('uid'),)).fetchone()
+            demos=[r[0] for r in c.execute("SELECT role FROM users WHERE email=role||'@example.test'")]
+        return jsonify(csrf=session['csrf'],user=dict(id=session['uid'],role=session['role'],name=session['name'],medical_branch=branch[0] if branch else BRANCHES[0]) if session.get('uid') else None,demo_roles=demos,assistant_configured=bool(app.config['OPENAI_API_KEY']),branches=BRANCHES,languages=LANGUAGES)
     @app.post('/api/register')
     def register():
         d=request.get_json() or {}; role=d.get('role'); email=d.get('email','').strip().lower(); name=d.get('name','').strip(); pw=d.get('password','')
         if role not in ['patient','doctor'] or not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',email) or not 1<=len(name)<=100 or not 10<=len(pw)<=200: abort(400,description='Valid name, email, role and password (10+ characters) required')
-        if role=='doctor' and (not app.config['DOCTOR_CODE'] or not secrets.compare_digest(d.get('code',''),app.config['DOCTOR_CODE'])): abort(403,description='Doctor invitation code required')
+        if role=='doctor' and not app.config['DOCTOR_CODE']: abort(403,description='Doctor registration is not configured. Set SAHAYAJ_DOCTOR_CODE in the local .env file and restart the server. Demo sign-in does not require a code.')
+        if role=='doctor' and not secrets.compare_digest(d.get('code',''),app.config['DOCTOR_CODE']): abort(403,description='Invitation code does not match. Use the code configured by your clinic administrator.')
+        branch=d.get('medical_branch',BRANCHES[0])
+        if branch not in BRANCHES: abort(400,description='Choose a supported medical branch')
         try:
             with db() as c:
                 uid=c.execute('INSERT INTO users(email,password,role,name) VALUES(?,?,?,?)',(email,generate_password_hash(pw),role,name)).lastrowid
+                if role=='doctor': c.execute('INSERT INTO clinician_profiles VALUES(?,?)',(uid,branch))
                 alias=d.get('alias','').strip()
                 if alias:
                     if len(alias)>100: abort(400)
@@ -172,10 +188,43 @@ def create_app(config=None):
     @app.put('/api/profile')
     @auth()
     def profile():
-        name=(request.get_json() or {}).get('name','').strip()
+        data=request.get_json() or {}; name=data.get('name','').strip()
         if not 1<=len(name)<=100: abort(400)
-        with db() as c: c.execute('UPDATE users SET name=? WHERE id=?',(name,session['uid']))
+        branch=data.get('medical_branch')
+        if branch is not None and (session['role']!='doctor' or branch not in BRANCHES): abort(400)
+        with db() as c:
+            c.execute('UPDATE users SET name=? WHERE id=?',(name,session['uid']))
+            if branch is not None: c.execute('INSERT INTO clinician_profiles VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET medical_branch=excluded.medical_branch',(session['uid'],branch))
         session['name']=name; return jsonify(ok=True)
+    @app.post('/api/chat')
+    @auth()
+    def chat():
+        data=request.get_json() or {}
+        if data.get('consent') is not True: abort(400,description='Consent is required before sending conversation text to OpenAI.')
+        language=data.get('language','en'); messages=data.get('messages')
+        if language not in LANGUAGES or not isinstance(messages,list) or not 1<=len(messages)<=12: abort(400,description='Choose a supported language and send 1–12 conversation messages.')
+        if any(not isinstance(m,dict) or m.get('role') not in ['user','assistant'] or not isinstance(m.get('content'),str) or not 1<=len(m['content'].strip())<=4000 for m in messages) or messages[-1].get('role')!='user': abort(400,description='Invalid conversation format or message length (maximum 4,000).')
+        messages=[{'role':m['role'],'content':m['content']} for m in messages]
+        if sum(len(m['content']) for m in messages)>18000: abort(400,description='Conversation too long. Clear chat and start again.')
+        context={}; cid=data.get('case_id')
+        if cid is not None:
+            if type(cid) is not int or cid<1: abort(400,description='Invalid consultation identifier')
+            if session['role']!='doctor': abort(403)
+            with db() as c:
+                row=owned(c,cid); intake=json.loads(row['intake'])
+                # Explicit clinician opt-in sends only selected fields; no identity or raw report files.
+                context={'intake':{k:v for k,v in intake.items() if k!='name'},'findings':[]}
+                for f in c.execute('SELECT findings.* FROM findings JOIN reports ON reports.id=report_id WHERE case_id=?',(cid,)):
+                    original=json.loads(f['original'])
+                    context['findings'].append({'test_name':original.get('test_name'),'value':original.get('value'),'unit':original.get('unit'),'reference_range':original.get('reference_range'),'review_status':f['review_status'],'correction':f['corrected']})
+        if not app.config['OPENAI_API_KEY']: abort(503,description='OpenAI is not configured. Add OPENAI_API_KEY to the local .env file and restart. Never put the key in this chat.')
+        stamp=time.monotonic(); recent=[t for t in chat_attempts.get(session['uid'],[]) if stamp-t<60]
+        if len(recent)>=6: abort(429,description='Please wait a minute before asking more questions.')
+        chat_attempts[session['uid']]=recent+[stamp]
+        try: answer=ask_openai(app.config['OPENAI_API_KEY'],app.config['OPENAI_MODEL'],session['role'],language,messages,context)
+        except RuntimeError as exc: abort(502,description=str(exc))
+        with db() as c: audit(c,cid,'assistant request','OpenAI; role='+session['role']+'; language='+language+'; case context='+str(cid is not None))
+        return jsonify(reply=answer,provider='OpenAI',review_required=True)
     @app.get('/api/cases')
     @auth()
     def cases():
@@ -186,14 +235,18 @@ def create_app(config=None):
     @auth('patient')
     def submit():
         raw=request.get_json() or {}; d={k:str(raw.get(k,'')).strip() for k in FIELDS}
+        d['medical_branch']=d['medical_branch'] or BRANCHES[0]
+        if d['medical_branch'] not in BRANCHES: abort(400,description='Choose a supported medical branch')
+        if d['medical_branch']!='Ayurveda':
+            for key in ['agni','koshtha','prakriti']: d[key]=''
         if any(len(v)>4000 for v in d.values()) or not d['complaint'] or not d['duration']: abort(400,description='Complaint and duration required; maximum 4,000 characters per field')
         try:
             if not 0<=int(d['severity'])<=10 or not 0<=int(d['age'])<=120: raise ValueError()
         except ValueError: abort(400,description='Age must be 0–120; severity 0–10')
-        f=flags(d); summary='Documentation draft — clinician review required.\n'+'\n'.join(f'{k}: {v} [source: patient intake/{k}]' for k,v in d.items() if v)+'\nMissing information: '+', '.join(k for k,v in d.items() if not v)+'\nClarify patient-reported observations and verify all report fields. No diagnosis inferred.'
+        f=flags(d); summary='Documentation draft — clinician review required.\n'+'\n'.join(f'{k}: {v} [source: patient intake/{k}]' for k,v in d.items() if v)+'\nMissing information: '+', '.join(k for k,v in d.items() if not v and (d['medical_branch']=='Ayurveda' or k not in ['agni','koshtha','prakriti']))+'\nClarify patient-reported observations and verify all report fields. No diagnosis inferred.'
         with db() as c:
-            doc=c.execute("SELECT id FROM users WHERE role='doctor' ORDER BY id LIMIT 1").fetchone()
-            if not doc: abort(409,description='No clinician available; register a doctor first')
+            doc=c.execute("SELECT users.id FROM users LEFT JOIN clinician_profiles ON users.id=clinician_profiles.user_id WHERE role='doctor' AND COALESCE(medical_branch,?)=? ORDER BY users.id LIMIT 1",(BRANCHES[0],d['medical_branch'])).fetchone()
+            if not doc: abort(409,description='No clinician is registered for this branch yet. Ask your clinic to add one, or choose General / unsure for a general consultation.')
             cid=c.execute('INSERT INTO cases(patient_id,doctor_id,created,status,intake,flags,summary) VALUES(?,?,?,?,?,?,?)',(session['uid'],doc['id'],now(),'Priority Review' if f else 'Awaiting Review',json.dumps(d),json.dumps(f),summary)).lastrowid; audit(c,cid,'case submitted')
         return jsonify(id=cid,flags=f),201
     @app.get('/api/cases/<int:cid>')
@@ -294,5 +347,5 @@ if __name__=='__main__':
     if args.demo:
         with sqlite3.connect(app.config['DATABASE']) as c:
             for email,role,name in [('patient@example.test','patient','Aarav Demo'),('doctor@example.test','doctor','Dr. Meera Demo')]: c.execute('INSERT OR IGNORE INTO users(email,password,role,name) VALUES(?,?,?,?)',(email,generate_password_hash('DemoPassword!2026'),role,name))
-        sample=ROOT/'demo'; sample.mkdir(exist_ok=True); doc=fitz.open(); page=doc.new_page(); page.insert_text((60,60),'FICTIONAL DEMO - NOT A REAL MEDICAL REPORT\nDate: 2026-10-12\nHemoglobin 12.5 g/dL 12.0-16.0\nGlucose 95 mg/dL 70-100'); doc.save(sample/'synthetic-report.pdf'); doc.close(); print('Demo accounts and synthetic report ready.')
-    elif not args.init: app.run(host='127.0.0.1',port=5000,debug=False)
+        sample=ROOT/'demo'; sample.mkdir(exist_ok=True); doc=fitz.open(); page=doc.new_page(); page.insert_text((60,60),'FICTIONAL DEMO - NOT A REAL MEDICAL REPORT\nDate: 2026-10-12\nHemoglobin 12.5 g/dL 12.0-16.0\nGlucose 95 mg/dL 70-100'); (sample/'synthetic-report.pdf').write_bytes(doc.tobytes()); doc.close(); print('Demo accounts ready. Patient/doctor: patient@example.test / doctor@example.test; password: DemoPassword!2026')
+    elif not args.init: app.run(host='127.0.0.1',port=int(os.environ.get('SAHAYAJ_PORT','5000')),debug=False)
