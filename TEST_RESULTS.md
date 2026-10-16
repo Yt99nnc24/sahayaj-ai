@@ -2,7 +2,9 @@
 
 The paid-provider adapter is replaced by loopback Ollama and bundled no-network guidance. New tests cover basic multilingual answers, unknown/medication questions, urgency bypass, local generation payload, missing-runtime fallback, cloud aliases, redirect/proxy restrictions, and authenticated key-free chat. Existing synthetic workflow/branch/ownership tests remain, with provider contract tests updated.
 
-A GitHub Actions workflow runs the synthetic tests and JavaScript syntax checks in basic mode; no model is downloaded and no real patient data or secrets are used. See the Actions run for the committed revision for actual pass/fail status. The local machine's execution tools were unavailable during this update, so no new local test run or real downloaded-model response is claimed. Model quality, hardware performance and microphone behavior require device testing.
+GitHub Actions completed successfully for cf5d5a3f40a1717ed16b049109b097bafc633cd5: **23 tests passed in 6.17 seconds**, followed by successful syntax checks for all three JavaScript files. Run: https://github.com/Yt99nnc24/sahayaj-ai/actions/runs/38868750007. CI uses synthetic data, basic mode and mocked local-model transport; no model download, real patient data or secrets are used.
+
+After local execution tools recovered, a direct Hindi basic-helper reply was verified. The updated app was started on port 5017; patient demo login and a browser question (How do I upload a report?) produced a labeled Basic offline helper answer with the expected local-model-unavailable notice. No API key or cloud consent was needed. A screenshot was saved locally. Ollama was not running, so no real downloaded-model response is claimed. Model quality, hardware performance and microphone behavior require device testing.
 
 ---
 
