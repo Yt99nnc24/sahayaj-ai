@@ -110,3 +110,10 @@ python backend.py
 Imports preserve patient mobile/health ID and doctor staff ID login, existing password hashes and historical notes. Emails can be shared across patient and doctor roles; each login page selects the correct role. Repeated imports are idempotent. Full source and destination snapshots are stored in `instance/backups/`. With multiple legacy doctors, pass `--doctor-email` to select ownership explicitly. Existing same-role email collisions abort the transaction; do not overwrite users. Historical records with unknown patient identifiers are retained in the backup and reported as unmatched.
 
 To return to the synthetic demo database, stop the server and run `Remove-Item Env:SAHAYAJ_DATABASE -ErrorAction SilentlyContinue`, then `python backend.py`.
+
+
+## Chatbot and public policies
+
+The assistant opens as a dedicated conversation window with suggested questions, separate user/assistant bubbles, a compact voice-enabled composer, reply copy/read controls, visible loading/retry states, and clear basic/local mode labels. English/Hindi/Punjabi controls are supported. No conversation is stored in local storage.
+
+Public pages: `/privacy`, `/cookies`, `/terms`. Links appear on landing, login and both portals. The cookie page explains session cookies versus display preferences and can reset only language/theme choices without signing out or deleting records. These notices describe the local demonstration; see POLICY_NOTES.md for operator-specific preparation before hosting for a real clinic.

@@ -1,3 +1,15 @@
+# Chatbot design and policies verification (2026-10-16)
+
+Local full suite: **26 passed in 78.51 seconds**. New checks cover public policy routes/aliases, links available before login and in both portals, actual storage/retention notices, and the scoped display-preference reset control. Existing offline and clinical workflow tests remain.
+
+JavaScript syntax checks passed for chatbot.js, experience.js and legal.js; Python backend/legal modules compile. Browser checks verified suggested-question submission, separate message bubbles and provider labels, Enter-to-send, new-conversation reset, Hindi responses, and responsive composer visibility. At 390x844: document width 375; chat bounds y=140..760 and composer bottom y=724.7, inside the viewport. Reset display preferences returned the portal to English without losing sign-in or the fictional consultation. Privacy page visually checked at 1280x900; viewport restored. Screenshots saved locally.
+
+A real downloaded Ollama model and microphone audio remain unverified. Policy notices describe the local demonstration, not a legal certification or production security assessment.
+
+---
+
+## Previous offline assistant verification
+
 # Offline assistant verification (2026-10-16)
 
 The paid-provider adapter is replaced by loopback Ollama and bundled no-network guidance. New tests cover basic multilingual answers, unknown/medication questions, urgency bypass, local generation payload, missing-runtime fallback, cloud aliases, redirect/proxy restrictions, and authenticated key-free chat. Existing synthetic workflow/branch/ownership tests remain, with provider contract tests updated.

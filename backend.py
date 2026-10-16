@@ -6,6 +6,7 @@ from PIL import Image
 from flask import Flask, request, session, jsonify, render_template, send_file, abort, redirect
 from werkzeug.security import generate_password_hash, check_password_hash
 from assistant_service import load_env, ask_offline, BRANCHES, LANGUAGES
+from legal_pages import PAGES
 
 ROOT = Path(__file__).parent
 FIELDS = ['name','age','sex','complaint','duration','severity','history','medications','allergies','observations','agni','koshtha','prakriti','digestion','sleep','diet','lifestyle','medical_branch','specialty']
@@ -122,6 +123,17 @@ def create_app(config=None):
     def error(e): return jsonify(error=e.description),e.code
     @app.get('/')
     def index(): return render_template('landing.html')
+    @app.get('/privacy')
+    @app.get('/cookies')
+    @app.get('/terms')
+    def policy():
+        kind=request.path[1:]
+        return render_template('legal.html',kind=kind,page=PAGES[kind])
+    @app.get('/privacy-policy')
+    @app.get('/cookie-policy')
+    @app.get('/terms-and-conditions')
+    def policy_alias():
+        return redirect({'/privacy-policy':'/privacy','/cookie-policy':'/cookies','/terms-and-conditions':'/terms'}[request.path])
     @app.get('/<role>/login')
     def portal_login(role):
         if role not in ['patient','doctor']: abort(404)
