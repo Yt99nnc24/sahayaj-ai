@@ -2,7 +2,7 @@
 
 Connected clinical workflows across medical branches.
 
-A local Flask + SQLite multi-branch care demonstration with a common landing page, separate patient and doctor login pages, an app-style patient portal and a desktop clinical workspace. Includes patient intake, private reports, deterministic extraction, evidence review, clinician drafts, finalization and PDF consultation downloads. The optional OpenAI chatbot sends only explicitly approved conversation/context to OpenAI; report extraction remains local.
+A local Flask + SQLite multi-branch care demonstration with a common landing page, separate patient and doctor login pages, an app-style patient portal and a desktop clinical workspace. Includes patient intake, private reports, deterministic extraction, evidence review, clinician drafts, finalization and PDF consultation downloads. The assistant uses local-only Ollama or a limited bundled helper; report extraction remains local.
 
 
 ## Quick demo (Windows CMD or double-click)
@@ -15,22 +15,18 @@ After installing requirements once, double-click **start-demo.cmd**. It prepares
 
 No invitation code is needed to sign in. The demo doctor initially handles **General / unsure**. To test Ayurveda, Allopathy, Homeopathy, Unani, Siddha, Naturopathy/yoga, Dental or Other, sign in as the doctor, choose **My profile → Medical branch → Save profile**, then select that same branch in the patient intake. Existing cases stay with their assigned doctor. Specialty/problem is recorded as patient context, not automatic specialist credential verification. Ayurveda's Agni/Koshtha/Prakriti fields appear only for Ayurveda.
 
-## OpenAI chatbot setup
+## Offline AI assistant (no paid API key)
 
-Copy `.env.example` to `.env` beside `backend.py`. Edit it in Notepad (never publish this file):
+The patient and doctor assistants now run offline. **Basic offline helper** works immediately with limited bundled workflow guidance in English/Hindi/Punjabi. It is rule-based and labels its limits.
+
+For open-ended local model replies, install [Ollama](https://ollama.com/download/windows), disable its cloud features, and run **setup-offline.cmd** once to download qwen2.5:1.5b (about 986 MB). Then use the app offline. See [OFFLINE_AI.md](OFFLINE_AI.md) for the complete setup, hardware/language limitations and modes.
 
 ```dotenv
-OPENAI_API_KEY=your-own-api-key
-OPENAI_MODEL=gpt-4.1-mini
-SAHAYAJ_DOCTOR_CODE=your-own-private-registration-code
-SAHAYAJ_SECURE_COOKIE=0
+SAHAYAJ_AI_MODE=auto
+SAHAYAJ_LOCAL_MODEL=qwen2.5:1.5b
 ```
 
-Restart the server. `start.cmd` launches the regular database; `start-demo.cmd` launches the fictional database. The same `.env` settings are loaded by both. ChatGPT subscription access does not supply this application's API credentials. Configure a model available to your API project; API usage requires your own account/billing.
-
-Open **Care assistant** or **Clinical assistant**. Agree to sending the conversation before sending a question. Doctors can separately opt in to include the open consultation's intake and extracted findings; names are excluded but free text can still identify a person. Patient chat does not automatically receive records. No file uploads, raw report files, key, full name or email are added automatically to OpenAI prompts. Chats stay in page memory and clear when navigating between cases or reloading. Request metadata (role/language/context inclusion), not conversation content, is audited. Requests use the [OpenAI Responses API](https://developers.openai.com/api/docs/guides/text) with `store:false`; this is not a guarantee of zero provider retention. See [OpenAI data controls](https://developers.openai.com/api/docs/guides/your-data).
-
-Responses are unverified educational/checklist suggestions, not diagnoses or prescriptions. All medical branches are supported as workflow categories; this does not imply equal evidence for treatments. No tools, browsing, autonomous prescriptions or automatic note publication are enabled. Without a key, the UI displays setup instructions and makes no outbound model call.
+auto uses a downloaded loopback Ollama model when available and clearly labels the bundled-helper fallback. basic never calls any model. ollama requires the downloaded model. No cloud fallback or paid API is used; old OpenAI key settings are ignored. Doctor context remains separately selected and authorized; suggestions never update or finalize records.
 
 ## Voice and languages
 
@@ -95,7 +91,7 @@ This is a hackathon prototype, not clinically validated software. Priority rules
 
 PDF extraction supports selectable text and simple one-line numeric laboratory entries. Dates, printed units, ranges, page numbers and source lines are retained; absent values/ranges are not inferred. Complex columns, qualitative tests, handwriting and broken text order require manual review. Every finding requires a review decision. A doctor must acknowledge original evidence and flags before finalizing, including documents without extractable findings.
 
-OCR runs only if both `pytesseract` and the separate Tesseract executable are installed and on PATH; it is always marked for manual verification. Without OCR, scanned PDFs and images remain privately available with a manual-review status. OCR confidence scoring is not implemented; all OCR content is treated as unverified. The editable intake draft remains deterministic. Optional OpenAI chat is separate and never changes/finalizes records. English, Hindi and Punjabi are selectable on public, login and both portal pages for core navigation/forms; technical explanations and clinical evidence retain their original text. Language switching preserves typed fields and canonical values. Both portals support a saved dark theme preference.
+OCR runs only if both `pytesseract` and the separate Tesseract executable are installed and on PATH; it is always marked for manual verification. Without OCR, scanned PDFs and images remain privately available with a manual-review status. OCR confidence scoring is not implemented; all OCR content is treated as unverified. The editable intake draft remains deterministic. Optional local-model chat is separate and never changes/finalizes records. English, Hindi and Punjabi are selectable on public, login and both portal pages for core navigation/forms; technical explanations and clinical evidence retain their original text. Language switching preserves typed fields and canonical values. Both portals support a saved dark theme preference.
 
 Cases are assigned to the first registered doctor in the requested medical branch. Existing accounts without a branch are treated as General / unsure. A branch without a clinician produces a clear error instead of cross-branch assignment. Other doctors cannot access them. Multi-clinic routing, reassignment, professional verification, account recovery, malware scanning, encryption at rest, managed backups and multi-worker rate limits are future work. The login throttle is in-process. Private storage depends on local OS account permissions. Do not put this development server on a public network or use it for actual medical records. Production requires HTTPS, secure cookies (`SAHAYAJ_SECURE_COOKIE=1`), a WSGI server and operational security review.
 

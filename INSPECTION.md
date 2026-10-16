@@ -33,3 +33,6 @@ The original database has one patient, one doctor and five intake records. Names
 ## Remaining boundaries
 
 As of 2026-10-15, explicit browser dictation and read-aloud controls are available in both portals with permission/fallback messages. English/Hindi/Punjabi core controls preserve original record text. Optional OpenAI conversation requires explicit consent; doctor context has a separate opt-in and ownership check. OCR engine installation remains optional. Source changes are published using the authenticated GitHub connector.
+
+
+2026-10-16 update: the optional OpenAI feature described above has been replaced by local-only Ollama plus a labeled bundled offline helper. No API key or paid model service is used. See OFFLINE_AI.md for setup and current limits. Other preserved clinical workflows and original-record backups are unchanged.

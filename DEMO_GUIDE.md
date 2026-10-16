@@ -2,7 +2,7 @@
 
 Double-click start-demo.cmd after installing requirements, then use http://127.0.0.1:5015/. Demo accounts live in a separate database. Both roles use password DemoPassword!2026 and emails patient@example.test / doctor@example.test. Use General / unsure initially, or change the doctor's branch in My profile first. The patient and doctor logins have a Fill demo sign-in control.
 
-Additional checks: choose English/Hindi/Punjabi; verify typed fields remain when switching; use Dictate/Read aloud beneath text boxes in a supported browser. Open Care assistant / Clinical assistant, add your OpenAI key to local .env and restart. Agree to sending the conversation. A doctor may separately choose to include the selected case's details. Responses do not update notes or finalize records. No live API key is included in the repository.
+Additional checks: choose English/Hindi/Punjabi; verify typed fields remain when switching; use Dictate/Read aloud beneath text boxes in a supported browser. Open Care assistant / Clinical assistant and ask how to upload a report. The Basic offline helper works immediately; run setup-offline.cmd for broader local-model answers. A doctor may separately choose to include the selected case's details. Responses do not update notes or finalize records. No API key is required. See OFFLINE_AI.md for one-time model download and cloud-disable settings.
 
 # Judge demonstration
 

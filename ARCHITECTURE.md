@@ -36,10 +36,18 @@ Optional Tesseract OCR has a timeout. Missing OCR gives a useful manual-review s
 Demonstration priority rules use the patient's complaint/observations for four explicit phrases (chest pain, difficulty breathing, loss of consciousness, severe bleeding) and mark these for immediate human assessment. Severity ≥8 adds a priority review cue, not an emergency determination. These rules are incomplete, unvalidated, may miss negation/context, and cannot exclude an emergency. Urgent-language banners advise immediate assistance instead of waiting for a queue.
 
 
-## Multi-branch, speech and assistant extension (2026-10-15)
+## Historical multi-branch extension (2026-10-15; cloud assistant superseded below)
 
 `clinician_profiles` is an additive table with a foreign key to existing users; missing profiles default to General / unsure. Patient intake JSON stores medical_branch and specialty. Routing selects a doctor in the exact branch; no cross-branch fallback. Existing record ownership does not change. Branch-specific Ayurveda fields are cleared server-side for other branches.
 
 `assistant_service.py` loads local .env settings (process environment wins) and calls only https://api.openai.com/v1/responses with server-side credentials, a timeout, bounded input/output, store:false and sanitized provider errors. `/api/chat` requires login, CSRF, explicit consent, validated conversation roles and language, plus case ownership for doctor-only contextual requests. The in-process per-user limit is six requests/minute. No clinical record is changed by AI; audit retains request metadata only. The model receives no external tools. Provider consent/retention policy and clinical validation remain deployment responsibilities.
 
 `static/experience.js` provides shared localization, browser dictation/read-aloud and an in-memory assistant conversation. Form values and original clinical evidence are never translated. Chat context is opt-in per open doctor case; switching cases clears conversation and invalidates an outstanding response. Microphone permissions and speech-service networking belong to the browser. Database-specific session cookie names avoid cookie collisions across local app copies. Demo scripts use a separate database and port 5015.
+
+
+## Current offline assistant (2026-10-16)
+The cloud adapter has been removed from executable code. assistant_service.py dispatches to offline_knowledge.py (bounded, rule-based helper) or loopback-only Ollama. auto falls back with an explicit provider/notice; basic makes no model requests; ollama returns a setup error on missing model. API keys are not read or transmitted by the assistant.
+
+The transport uses a fixed 127.0.0.1:11434 endpoint, no environment proxies, no redirects and no Authorization header. Only supported downloaded qwen2.5 model names are accepted; cloud metadata is rejected. Ollama itself must be started with OLLAMA_NO_CLOUD=1 as documented. Downloads happen only in setup-offline.cmd, never in the chat handler. No cloud fallback exists.
+
+Existing login, CSRF, input limits, doctor ownership/context selection, immutable finalized notes and metadata-only auditing remain. Cloud-transmission consent is removed because no hosted inference is used. The provider badge identifies local inference versus basic fixed guidance. Urgent phrases bypass local inference. Browser speech remains separate and may use vendor networking. See OFFLINE_AI.md and CI tests.

@@ -1,5 +1,6 @@
 @echo off
 setlocal
+set "OLLAMA_NO_CLOUD=1"
 cd /d "%~dp0"
 rem A separate fictional database; existing clinic records are not changed.
 set "SAHAYAJ_DATABASE=%~dp0instance\demo.db"

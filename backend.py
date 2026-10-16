@@ -5,7 +5,7 @@ import fitz
 from PIL import Image
 from flask import Flask, request, session, jsonify, render_template, send_file, abort, redirect
 from werkzeug.security import generate_password_hash, check_password_hash
-from assistant_service import load_env, ask_openai, BRANCHES, LANGUAGES
+from assistant_service import load_env, ask_offline, BRANCHES, LANGUAGES
 
 ROOT = Path(__file__).parent
 FIELDS = ['name','age','sex','complaint','duration','severity','history','medications','allergies','observations','agni','koshtha','prakriti','digestion','sleep','diet','lifestyle','medical_branch','specialty']
@@ -60,8 +60,8 @@ def create_app(config=None):
     app.config.update(SECRET_KEY=secret,DATABASE=os.environ.get('SAHAYAJ_DATABASE',str(private/'database.db')),UPLOAD_FOLDER=str(private/'reports'),MAX_CONTENT_LENGTH=12*1024*1024,SESSION_COOKIE_HTTPONLY=True,SESSION_COOKIE_SAMESITE='Lax',SESSION_COOKIE_SECURE=os.environ.get('SAHAYAJ_SECURE_COOKIE')=='1',DOCTOR_CODE=os.environ.get('SAHAYAJ_DOCTOR_CODE',''))
     if config: app.config.update(config)
     app.config['SESSION_COOKIE_NAME']='sahayaj_'+hashlib.sha256(str(Path(app.config['DATABASE']).resolve()).encode()).hexdigest()[:12]
-    app.config.setdefault('OPENAI_API_KEY',os.environ.get('OPENAI_API_KEY',''))
-    app.config.setdefault('OPENAI_MODEL',os.environ.get('OPENAI_MODEL','gpt-4.1-mini'))
+    app.config.setdefault('AI_MODE',os.environ.get('SAHAYAJ_AI_MODE','auto'))
+    app.config.setdefault('LOCAL_MODEL',os.environ.get('SAHAYAJ_LOCAL_MODEL','qwen2.5:1.5b'))
     login_attempts={}
     chat_attempts={}
     Path(app.config['UPLOAD_FOLDER']).mkdir(parents=True,exist_ok=True)
@@ -145,7 +145,7 @@ def create_app(config=None):
         with db() as c:
             branch=c.execute('SELECT medical_branch FROM clinician_profiles WHERE user_id=?',(session.get('uid'),)).fetchone()
             demos=[r[0] for r in c.execute("SELECT role FROM users WHERE email=role||'@example.test'")]
-        return jsonify(csrf=session['csrf'],user=dict(id=session['uid'],role=session['role'],name=session['name'],medical_branch=branch[0] if branch else BRANCHES[0]) if session.get('uid') else None,demo_roles=demos,assistant_configured=bool(app.config['OPENAI_API_KEY']),branches=BRANCHES,languages=LANGUAGES)
+        return jsonify(csrf=session['csrf'],user=dict(id=session['uid'],role=session['role'],name=session['name'],medical_branch=branch[0] if branch else BRANCHES[0]) if session.get('uid') else None,demo_roles=demos,assistant_configured=True,assistant_mode=app.config['AI_MODE'],assistant_model=app.config['LOCAL_MODEL'],branches=BRANCHES,languages=LANGUAGES)
     @app.post('/api/register')
     def register():
         d=request.get_json() or {}; role=d.get('role'); email=d.get('email','').strip().lower(); name=d.get('name','').strip(); pw=d.get('password','')
@@ -200,7 +200,6 @@ def create_app(config=None):
     @auth()
     def chat():
         data=request.get_json() or {}
-        if data.get('consent') is not True: abort(400,description='Consent is required before sending conversation text to OpenAI.')
         language=data.get('language','en'); messages=data.get('messages')
         if language not in LANGUAGES or not isinstance(messages,list) or not 1<=len(messages)<=12: abort(400,description='Choose a supported language and send 1–12 conversation messages.')
         if any(not isinstance(m,dict) or m.get('role') not in ['user','assistant'] or not isinstance(m.get('content'),str) or not 1<=len(m['content'].strip())<=4000 for m in messages) or messages[-1].get('role')!='user': abort(400,description='Invalid conversation format or message length (maximum 4,000).')
@@ -217,14 +216,13 @@ def create_app(config=None):
                 for f in c.execute('SELECT findings.* FROM findings JOIN reports ON reports.id=report_id WHERE case_id=?',(cid,)):
                     original=json.loads(f['original'])
                     context['findings'].append({'test_name':original.get('test_name'),'value':original.get('value'),'unit':original.get('unit'),'reference_range':original.get('reference_range'),'review_status':f['review_status'],'correction':f['corrected']})
-        if not app.config['OPENAI_API_KEY']: abort(503,description='OpenAI is not configured. Add OPENAI_API_KEY to the local .env file and restart. Never put the key in this chat.')
         stamp=time.monotonic(); recent=[t for t in chat_attempts.get(session['uid'],[]) if stamp-t<60]
         if len(recent)>=6: abort(429,description='Please wait a minute before asking more questions.')
         chat_attempts[session['uid']]=recent+[stamp]
-        try: answer=ask_openai(app.config['OPENAI_API_KEY'],app.config['OPENAI_MODEL'],session['role'],language,messages,context)
+        try: answer=ask_offline(app.config['AI_MODE'],app.config['LOCAL_MODEL'],session['role'],language,messages,context)
         except RuntimeError as exc: abort(502,description=str(exc))
-        with db() as c: audit(c,cid,'assistant request','OpenAI; role='+session['role']+'; language='+language+'; case context='+str(cid is not None))
-        return jsonify(reply=answer,provider='OpenAI',review_required=True)
+        with db() as c: audit(c,cid,'assistant request',answer['provider']+'; role='+session['role']+'; language='+language+'; case context='+str(cid is not None))
+        return jsonify(**answer,review_required=True)
     @app.get('/api/cases')
     @auth()
     def cases():

@@ -1,3 +1,13 @@
+# Offline assistant verification (2026-10-16)
+
+The paid-provider adapter is replaced by loopback Ollama and bundled no-network guidance. New tests cover basic multilingual answers, unknown/medication questions, urgency bypass, local generation payload, missing-runtime fallback, cloud aliases, redirect/proxy restrictions, and authenticated key-free chat. Existing synthetic workflow/branch/ownership tests remain, with provider contract tests updated.
+
+A GitHub Actions workflow runs the synthetic tests and JavaScript syntax checks in basic mode; no model is downloaded and no real patient data or secrets are used. See the Actions run for the committed revision for actual pass/fail status. The local machine's execution tools were unavailable during this update, so no new local test run or real downloaded-model response is claimed. Model quality, hardware performance and microphone behavior require device testing.
+
+---
+
+## Historical baseline before offline replacement
+
 # Expanded-care verification (2026-10-15)
 
 Latest complete suite: **16 passed** (see command below). The existing clinical workflow and importer checks remain included. Additional checks verify exact-branch clinician routing, unavailable/invalid branches, Ayurveda-only fields cleared on other branches, doctor profile branch updates, and ownership restrictions.

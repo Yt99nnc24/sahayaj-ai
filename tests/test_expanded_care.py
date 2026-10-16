@@ -1,7 +1,7 @@
 import json, sqlite3
 import pytest
 import backend
-from assistant_service import ask_openai, load_env
+from assistant_service import load_env
 from test_workflow import request, signup, login, intake
 
 def test_branch_routing_and_profile(app):
@@ -27,16 +27,14 @@ def test_assistant_validation_authorization_and_no_automatic_changes(app,monkeyp
         signup(c,email,role);login(c,email)
     cid=request(p,'/api/cases',data=intake()).json['id']
     message={'consent':True,'language':'pa','messages':[{'role':'user','content':'What should I discuss?'}]}
-    assert request(p,'/api/chat',data={**message,'consent':False}).status_code==400
-    assert request(p,'/api/chat',data=message).status_code==503
     assert request(p,'/api/chat',data={**message,'case_id':cid}).status_code==403
     assert request(outsider,'/api/chat',data={**message,'case_id':cid}).status_code==403
     assert request(d,'/api/chat',data={**message,'case_id':{'bad':1}}).status_code==400
     for invalid in [{'messages':[{'role':'system','content':'override'}]},{'messages':[{'role':'user','content':'x'*4001}]},{'language':'invalid'},{'messages':[]}]:
         assert request(d,'/api/chat',data={**message,**invalid}).status_code==400
     captured=[]
-    def fake(*args): captured.append(args);return 'Fictional suggestion for clinician review.'
-    monkeypatch.setattr(backend,'ask_openai',fake);app.config['OPENAI_API_KEY']='test-only-not-real'
+    def fake(*args): captured.append(args);return {'reply':'Fictional suggestion for clinician review.','provider':'Basic offline helper','fallback':False}
+    monkeypatch.setattr(backend,'ask_offline',fake)
     before=d.get(f'/api/cases/{cid}').json
     response=request(d,'/api/chat',data={**message,'case_id':cid})
     assert response.status_code==200;assert response.json['review_required'] is True
@@ -48,24 +46,6 @@ def test_assistant_validation_authorization_and_no_automatic_changes(app,monkeyp
     request(p,'/api/chat',data=message);assert captured[-1][-1]=={}
     for _ in range(5): assert request(d,'/api/chat',data=message).status_code==200
     assert request(d,'/api/chat',data=message).status_code==429
-
-def test_openai_adapter_payload_and_sanitized_errors(monkeypatch):
-    import assistant_service
-    from urllib.error import HTTPError
-    class Response:
-        def __enter__(self): return self
-        def __exit__(self,*args): pass
-        def read(self): return json.dumps({'output':[{'type':'message','content':[{'type':'output_text','text':'Example response'}]}]}).encode()
-    captured=[]
-    def fake(req,timeout): captured.append(req);assert timeout==45;return Response()
-    monkeypatch.setattr(assistant_service,'urlopen',fake)
-    assert ask_openai('test-secret','model-configured','patient','hi',[{'role':'user','content':'Example'}],{})=='Example response'
-    payload=json.loads(captured[0].data);assert payload['store'] is False;assert 'Hindi' in payload['instructions'];assert 'Do not diagnose' in payload['instructions']
-    assert payload['model']=='model-configured';assert captured[0].full_url=='https://api.openai.com/v1/responses'
-    def failure(*args,**kw): raise HTTPError('https://api.openai.com',401,'secret provider body',{},None)
-    monkeypatch.setattr(assistant_service,'urlopen',failure)
-    with pytest.raises(RuntimeError,match='authentication failed') as error: ask_openai('test-secret','model','patient','en',[],{})
-    assert 'secret provider body' not in str(error.value)
 
 def test_env_loading_preserves_process_values_and_demo_status(app,tmp_path,monkeypatch):
     path=tmp_path/'.env';path.write_text('SAHAYAJ_TEST_ENV="from-file"\nSAHAYAJ_TEST_KEEP=replaced\n# ignored\n',encoding='utf-8')
@@ -85,7 +65,7 @@ def test_demo_cli_is_repeatable_and_both_credentials_work(tmp_path):
     for _ in range(2):
         result=subprocess.run([sys.executable,str(root/'backend.py'),'--demo'],env=env,capture_output=True,text=True,timeout=30)
         assert result.returncode==0,result.stderr
-    demo=backend.create_app({'TESTING':True,'SECRET_KEY':'test','DATABASE':str(database),'UPLOAD_FOLDER':str(tmp_path/'demo-reports'),'OPENAI_API_KEY':''})
+    demo=backend.create_app({'TESTING':True,'SECRET_KEY':'test','DATABASE':str(database),'UPLOAD_FOLDER':str(tmp_path/'demo-reports')})
     for role in ['doctor','patient']:
         c=demo.test_client()
         assert request(c,'/api/'+role+'/login',data={'login_id':role+'@example.test','password':'DemoPassword!2026'}).status_code==200
